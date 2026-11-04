@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    description: Raw daily files as loaded by pipeline/ingest.py (all values are text).
+    tables:
+      - name: invoice_lines
+        description: One row per line of a delivered file, plus lineage columns. Partitioned by batch_date.

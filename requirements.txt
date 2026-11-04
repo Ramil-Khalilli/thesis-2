@@ -1,0 +1,6 @@
+dbt-core==1.12.6
+dbt-duckdb==1.11.1
+duckdb==2.0.0
+pandas==3.1.1
+prefect==3.9.1
+pyarrow==26.0.1

@@ -1,0 +1,21 @@
+name: thesis_pipeline
+version: "1.0.0"
+config-version: 2
+profile: thesis_pipeline
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Batch dates to (re)process, e.g. ['2010-12-01']. Empty = all dates (full rebuild).
+  batch_dates: []
+  # Quantities above this (absolute) are loaded but flagged for review.
+  extreme_quantity: 10000
+
+models:
+  thesis_pipeline:
+    silver:
+      +schema: silver

@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: invoice_lines
+    description: Clean, typed invoice lines (silver). One row per valid, non-duplicate bronze row.
+    columns:
+      - name: batch_date
+        data_tests: [not_null]
+      - name: invoice
+        data_tests: [not_null]
+      - name: invoice_prefix
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['', 'C', 'A']
+      - name: stock_code
+        data_tests: [not_null]
+      - name: quantity
+        data_tests: [not_null]
+      - name: unit_price
+        data_tests: [not_null]
+      - name: invoice_ts
+        data_tests: [not_null]
+      - name: line_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['product', 'stock_correction', 'adjustment', 'postage', 'manual',
+                         'discount', 'sample', 'fee', 'voucher', 'other']
+
+  - name: quarantine_lines
+    description: Rows that failed validation, with the reason and original values.
+    columns:
+      - name: dq_reason
+        data_tests: [not_null]
+
+  - name: batch_quality
+    description: Per-batch data quality counts.
+    columns:
+      - name: batch_date
+        data_tests: [not_null, unique]

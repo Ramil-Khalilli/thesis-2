@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+data/
+transform/target/
+transform/logs/
+logs/
+*.duckdb
+*.wal
+online_retail_II.csv
+online_retail_II.parquet
+transform/.user.yml
