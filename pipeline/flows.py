@@ -1,8 +1,9 @@
 """Prefect flows and the command line entry point.
 
 Usage (from the project folder, with the .venv Python):
-    python -m pipeline.flows bootstrap               load year 1 history and build silver + gold (once)
-    python -m pipeline.flows run                     daily cycle: landing -> bronze -> silver -> gold
+    python -m pipeline.flows bootstrap               load year 1 history, build silver + gold, train first model (once)
+    python -m pipeline.flows run                     daily cycle: landing -> bronze -> silver -> gold -> forecast
+    python -m pipeline.flows evaluate                forecast accuracy vs baseline, retraining decisions
     python -m pipeline.flows ingest                  landing -> bronze only
     python -m pipeline.flows transform               rebuild silver + gold for all dates
     python -m pipeline.flows backfill START END      rebuild silver + gold for a date range (YYYY-MM-DD)
@@ -35,6 +36,17 @@ def transform_task(batch_dates: list[str] | None = None, full_refresh: bool = Fa
     run_dbt(batch_dates, full_refresh)
 
 
+@task(cache_policy=NO_CACHE)
+def forecast_task(batch_dates: list[str] | None = None):
+    from .forecast import forecast_after
+    logger = get_run_logger()
+    lines = forecast_after(batch_dates)
+    for line in lines[-15:]:
+        logger.info(line)
+    if len(lines) > 15:
+        logger.info(f"... {len(lines) - 15} earlier lines not shown")
+
+
 def _log_results(results) -> None:
     logger = get_run_logger()
     if not results:
@@ -62,6 +74,7 @@ def daily_flow():
     if dates:
         get_run_logger().info(f"Building silver and gold for {len(dates)} batch date(s): {', '.join(sorted(dates))}")
         transform_task(dates)
+        forecast_task(dates)
     return results
 
 
@@ -81,6 +94,7 @@ def transform_flow(batch_dates: list[str] | None = None, full_refresh: bool = Fa
 def bootstrap_flow(force: bool = False):
     get_run_logger().info(bootstrap_history(force))
     transform_task(None, full_refresh=True)
+    forecast_task(None)   # trains the first model on year 1 and forecasts the first replay day
 
 
 def bronze_dates_between(start: str, end: str) -> list[str]:
@@ -136,6 +150,8 @@ def reset() -> None:
     for path in (config.DATA / "bronze", config.ARCHIVE, config.QUARANTINE):
         shutil.rmtree(path, ignore_errors=True)
     config.WAREHOUSE.unlink(missing_ok=True)
+    shutil.rmtree(config.DATA / "mlartifacts", ignore_errors=True)
+    (config.DATA / "mlflow.db").unlink(missing_ok=True)
     subprocess.run([sys.executable, str(config.ROOT / "simulator" / "deliver.py"), "--reset"], check=True)
     print("Pipeline output deleted. Run 'bootstrap' to start again.")
 
@@ -157,6 +173,9 @@ if __name__ == "__main__":
             transform_flow(dates)
     elif command == "status":
         status()
+    elif command == "evaluate":
+        from .forecast import evaluation_summary
+        print(evaluation_summary())
     elif command == "reset":
         reset()
     else:

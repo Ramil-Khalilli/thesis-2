@@ -13,6 +13,8 @@ pipeline/
   warehouse.py                DuckDB connection, ingestion log, bronze view
   ingest.py                   landing -> bronze rules
   transform.py                runs dbt from Python
+  features.py                 forecast features (only data before the target day)
+  forecast.py                 training, MLflow registry, daily forecast, monthly retraining
   flows.py                    Prefect flows + command line
 transform/                    dbt project (bronze -> silver -> gold)
   models/silver/              cleaning rules as SQL models
@@ -43,8 +45,9 @@ python -m venv .venv
 ## Daily cycle
 ```
 .venv\Scripts\python simulator\deliver.py            # a new day arrives in landing
-.venv\Scripts\python -m pipeline.flows run            # landing -> bronze -> silver -> gold
+.venv\Scripts\python -m pipeline.flows run            # landing -> bronze -> silver -> gold -> forecast
 .venv\Scripts\python -m pipeline.flows status         # what has been loaded
+.venv\Scripts\python -m pipeline.flows evaluate       # forecast accuracy and retraining decisions
 ```
 Other commands:
 | Command | What it does |
@@ -115,6 +118,33 @@ later file updates the day it belongs to (tested: a sale dated 2 Dec delivered i
 
 Gold tests: unique and not-null keys, every sale linked to a product version and a calendar day, one
 current version per product with no gaps or overlaps, and gold revenue totals equal to silver.
+
+## Forecast (the modelling component)
+Target: net product revenue of the next expected trading day (Sun–Fri, not a UK bank holiday,
+not 24 Dec–3 Jan). Features (`pipeline/features.py`): day of week, month, day of month, days to
+Christmas, revenue of the last trading day, same weekday last week and 4-week average, 5- and 20-day
+means, 20-day standard deviation, 5-day averages of invoices and customers. Every feature uses only days
+before the target, so a run that processes many days gives the same forecasts as day-by-day runs.
+
+| Part | Choice |
+|---|---|
+| Baseline | same weekday last week (5-day mean if that day had no trading) |
+| Model | ridge regression (imputer + scaler + RidgeCV); gradient boosting was tested offline and was not better |
+| Registry | MLflow (`data/mlflow.db`), registered model `daily_revenue_forecast`, production version = alias `champion` |
+| Daily step | after each batch, forecast the next trading day into `ml.forecasts`; `ml.forecast_accuracy` joins actuals from `gold.daily_sales` |
+| Retraining | `THESIS_RETRAIN_POLICY=monthly` (default) or `never`. Monthly: first batch of a month (≥ 28 days after the last check), a challenger trained without the last 28 days is compared with the champion on those days and promoted only if better. Decisions are logged in `ml.model_events` |
+
+Year 2 replay (304 scored forecasts):
+
+| Policy | MAE (£) | vs baseline (MAE £11,370) |
+|---|---|---|
+| never retrain | 9,353 | 17.7% better |
+| monthly retrain | 9,328 | 18.0% better (6 of 12 checks promoted a new model) |
+
+The model beats the baseline in 12 of 13 months (not August 2011). Monthly retraining helps only slightly:
+the relationships the model learned in year 1 stayed stable in year 2.
+
+Browse runs and model versions: `.venv\Scripts\mlflow ui --backend-store-uri sqlite:///data/mlflow.db`
 
 ## Notes
 * Each Prefect run currently starts a temporary local server (~20 s overhead). Running a
