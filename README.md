@@ -14,8 +14,10 @@ pipeline/
   ingest.py                   landing -> bronze rules
   transform.py                runs dbt from Python
   flows.py                    Prefect flows + command line
-transform/                    dbt project (bronze -> silver)
+transform/                    dbt project (bronze -> silver -> gold)
   models/silver/              cleaning rules as SQL models
+  models/gold/                dimensions, sales fact, daily KPIs
+  seeds/                      UK bank holidays 2009–2011
   tests/                      reconciliation and warning tests
   macros/                     batch selection + replace-by-batch logic
 data/                         (all generated; can be rebuilt from the raw CSV)
@@ -41,7 +43,7 @@ python -m venv .venv
 ## Daily cycle
 ```
 .venv\Scripts\python simulator\deliver.py            # a new day arrives in landing
-.venv\Scripts\python -m pipeline.flows run            # landing -> bronze -> silver
+.venv\Scripts\python -m pipeline.flows run            # landing -> bronze -> silver -> gold
 .venv\Scripts\python -m pipeline.flows status         # what has been loaded
 ```
 Other commands:
@@ -93,6 +95,26 @@ test that every bronze row is either in silver, in quarantine or counted as a dr
 
 Full replay check (all 604 days): 1,044,848 bronze rows = 11,812 duplicates + 18 quarantined +
 1,033,018 silver rows, matching the audit in Data_Exploration.ipynb.
+
+## Silver -> gold (dbt)
+| Table | Contents | Update |
+|---|---|---|
+| `gold.fact_sales` | product sale and cancellation lines with product version, customer, `has_matching_sale` for cancellations | replaced per batch date |
+| `gold.daily_sales` | KPIs per invoice date: gross/net revenue, cancellations, invoices, customers, new customers, units, avg invoice value, non-UK share | invoice dates touched by the batch are recomputed |
+| `gold.daily_sales_by_country` | net revenue, invoices, customers per date and country | same as daily_sales |
+| `gold.dim_product` | SCD Type 2: one row per description version (`valid_from` inclusive, `valid_to` exclusive, `is_current`), plus typical pack size and median price | rebuilt each run |
+| `gold.dim_customer` | first/last purchase, invoices, net revenue, latest country | rebuilt each run |
+| `gold.dim_date` | calendar, trading days, UK bank holidays, days to Christmas | rebuilt each run |
+
+Product versions: a new version starts when a product gets a description it never had before
+(411 of 4,147 products were renamed in year 1). Switching back to an older name does not create a version.
+
+Late data: because daily KPIs are recomputed for every invoice date in the batch, a row that arrives in a
+later file updates the day it belongs to (tested: a sale dated 2 Dec delivered in the 5 Dec file raised
+2 Dec's net revenue by exactly its amount).
+
+Gold tests: unique and not-null keys, every sale linked to a product version and a calendar day, one
+current version per product with no gaps or overlaps, and gold revenue totals equal to silver.
 
 ## Notes
 * Each Prefect run currently starts a temporary local server (~20 s overhead). Running a

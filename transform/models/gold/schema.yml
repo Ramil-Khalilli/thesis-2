@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: Calendar with trading days, UK bank holidays and days to Christmas.
+    columns:
+      - name: date_day
+        data_tests: [unique, not_null]
+
+  - name: dim_product
+    description: Products with SCD Type 2 history of the description (valid_from inclusive, valid_to exclusive).
+    columns:
+      - name: product_version_key
+        data_tests: [unique, not_null]
+      - name: stock_code
+        data_tests: [not_null]
+
+  - name: dim_customer
+    description: One row per known customer.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: fact_sales
+    description: Product sale and cancellation lines (net values when summed).
+    columns:
+      - name: sales_line_key
+        data_tests: [unique, not_null]
+      - name: product_version_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_version_key
+      - name: invoice_date
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+
+  - name: daily_sales
+    description: Company KPIs per invoice date (input for the revenue forecast).
+    columns:
+      - name: invoice_date
+        data_tests: [unique, not_null]
+
+  - name: daily_sales_by_country
+    description: Net product revenue per invoice date and country.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "invoice_date || '|' || country"

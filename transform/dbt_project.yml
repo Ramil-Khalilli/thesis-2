@@ -15,7 +15,15 @@ vars:
   # Quantities above this (absolute) are loaded but flagged for review.
   extreme_quantity: 10000
 
+seed-paths: ["seeds"]
+
 models:
   thesis_pipeline:
     silver:
       +schema: silver
+    gold:
+      +schema: gold
+
+seeds:
+  thesis_pipeline:
+    +schema: reference

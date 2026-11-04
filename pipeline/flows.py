@@ -1,11 +1,11 @@
 """Prefect flows and the command line entry point.
 
 Usage (from the project folder, with the .venv Python):
-    python -m pipeline.flows bootstrap               load year 1 history into bronze and build silver (once)
-    python -m pipeline.flows run                     daily cycle: landing -> bronze -> silver
+    python -m pipeline.flows bootstrap               load year 1 history and build silver + gold (once)
+    python -m pipeline.flows run                     daily cycle: landing -> bronze -> silver -> gold
     python -m pipeline.flows ingest                  landing -> bronze only
-    python -m pipeline.flows transform               rebuild silver for all dates
-    python -m pipeline.flows backfill START END      rebuild silver for a date range (YYYY-MM-DD)
+    python -m pipeline.flows transform               rebuild silver + gold for all dates
+    python -m pipeline.flows backfill START END      rebuild silver + gold for a date range (YYYY-MM-DD)
     python -m pipeline.flows status                  show what has been loaded
     python -m pipeline.flows reset                   delete all pipeline output and restart the simulator
 """
@@ -60,7 +60,7 @@ def daily_flow():
     _log_results(results)
     dates = [str(r.batch_date) for r in results if r.status in LOADED]
     if dates:
-        get_run_logger().info(f"Building silver for {len(dates)} batch date(s): {', '.join(sorted(dates))}")
+        get_run_logger().info(f"Building silver and gold for {len(dates)} batch date(s): {', '.join(sorted(dates))}")
         transform_task(dates)
     return results
 
@@ -120,6 +120,13 @@ def status() -> None:
                 SELECT batch_date, rows_bronze, duplicates_dropped AS dups, rows_quarantined AS quarantined,
                        rows_silver, cancellation_lines AS cancels, missing_customer_lines AS no_customer
                 FROM silver.batch_quality ORDER BY batch_date DESC LIMIT 5
+            """).df().to_string(index=False))
+        if "gold.daily_sales" in tables:
+            print("\ngold.daily_sales, last 5 days:")
+            print(con.execute("""
+                SELECT invoice_date, round(net_product_revenue, 2) AS net_revenue, invoices, customers,
+                       new_customers, avg_invoice_value, cancellation_rate
+                FROM gold.daily_sales ORDER BY invoice_date DESC LIMIT 5
             """).df().to_string(index=False))
     finally:
         con.close()
