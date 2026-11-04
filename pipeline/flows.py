@@ -14,6 +14,8 @@ Usage (from the project folder, with the .venv Python):
 import shutil
 import subprocess
 import sys
+import time
+from datetime import datetime
 
 from prefect import flow, get_run_logger, task
 from prefect.cache_policies import NO_CACHE
@@ -65,16 +67,43 @@ def _run_id() -> str:
     return str(flow_run.id)[:12]
 
 
+def _record_run(run_id, flow_name, started, timings, results, status, message="") -> None:
+    con = connect()
+    try:
+        con.execute(
+            "INSERT INTO meta.pipeline_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [run_id, flow_name, started, datetime.now(), len(results),
+             sum(r.status in LOADED for r in results),
+             sum(r.rows_loaded or 0 for r in results if r.status in LOADED),
+             timings.get("ingest"), timings.get("transform"), timings.get("forecast"), status, message],
+        )
+    finally:
+        con.close()
+
+
 @flow(name="daily-run")
 def daily_flow():
-    """The daily cycle: load new files into bronze, then rebuild silver for exactly those days."""
-    results = ingest_landing_task(_run_id())
-    _log_results(results)
-    dates = [str(r.batch_date) for r in results if r.status in LOADED]
-    if dates:
-        get_run_logger().info(f"Building silver and gold for {len(dates)} batch date(s): {', '.join(sorted(dates))}")
-        transform_task(dates)
-        forecast_task(dates)
+    """The daily cycle: load new files into bronze, then rebuild silver, gold and the forecast for those days."""
+    run_id, started, timings, results = _run_id(), datetime.now(), {}, []
+
+    def timed(step, fn, *args):
+        t0 = time.perf_counter()
+        out = fn(*args)
+        timings[step] = round(time.perf_counter() - t0, 2)
+        return out
+
+    try:
+        results = timed("ingest", ingest_landing_task, run_id)
+        _log_results(results)
+        dates = [str(r.batch_date) for r in results if r.status in LOADED]
+        if dates:
+            get_run_logger().info(f"Building silver and gold for {len(dates)} batch date(s): {', '.join(sorted(dates))}")
+            timed("transform", transform_task, dates)
+            timed("forecast", forecast_task, dates)
+    except Exception as e:
+        _record_run(run_id, "daily-run", started, timings, results, "failed", str(e)[:500])
+        raise
+    _record_run(run_id, "daily-run", started, timings, results, "success")
     return results
 
 

@@ -16,6 +16,8 @@ pipeline/
   features.py                 forecast features (only data before the target day)
   forecast.py                 training, MLflow registry, daily forecast, monthly retraining
   flows.py                    Prefect flows + command line
+dashboard/
+  app.py                      Streamlit pipeline monitor (reads the warehouse only)
 transform/                    dbt project (bronze -> silver -> gold)
   models/silver/              cleaning rules as SQL models
   models/gold/                dimensions, sales fact, daily KPIs
@@ -145,6 +147,23 @@ The model beats the baseline in 12 of 13 months (not August 2011). Monthly retra
 the relationships the model learned in year 1 stayed stable in year 2.
 
 Browse runs and model versions: `.venv\Scripts\mlflow ui --backend-store-uri sqlite:///data/mlflow.db`
+
+## Dashboard
+```
+.venv\Scripts\streamlit run dashboard\app.py
+```
+Opens at http://localhost:8501 with five tabs:
+
+| Tab | Shows |
+|---|---|
+| Overview | latest batch, clean rows, forecast error vs baseline, next forecast, daily revenue with forecasts |
+| Forecast | forecast vs actual vs baseline, error by month, retraining decisions, latest forecasts |
+| Data quality | rows received, duplicates, quarantine, rejected/re-sent files, missing customer IDs over time |
+| Sales | UK share, top countries outside the UK, top products |
+| Pipeline runs | time per step (ingest, dbt, forecast) for each run, from `meta.pipeline_runs` |
+
+DuckDB allows one writer or several readers at a time. The dashboard opens a read-only connection per
+query and closes it immediately; while a pipeline run is writing, it retries and then asks you to refresh.
 
 ## Notes
 * Each Prefect run currently starts a temporary local server (~20 s overhead). Running a

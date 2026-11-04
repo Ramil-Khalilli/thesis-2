@@ -1,3 +1,4 @@
+altair==6.3.0
 dbt-core==1.12.6
 dbt-duckdb==1.11.1
 duckdb==2.0.0
@@ -6,3 +7,4 @@ pandas==3.1.1
 prefect==3.9.1
 pyarrow==26.0.1
 scikit-learn==1.9.1
+streamlit==1.66.1

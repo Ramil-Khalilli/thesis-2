@@ -10,3 +10,4 @@ logs/
 online_retail_II.csv
 online_retail_II.parquet
 transform/.user.yml
+.claude/

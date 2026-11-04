@@ -23,6 +23,22 @@ def connect() -> duckdb.DuckDBPyConnection:
             finished_at   TIMESTAMP
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS meta.pipeline_runs (
+            run_id        VARCHAR,
+            flow          VARCHAR,
+            started_at    TIMESTAMP,
+            finished_at   TIMESTAMP,
+            files         INTEGER,   -- files found in landing
+            batch_dates   INTEGER,   -- days loaded or replaced
+            rows_loaded   BIGINT,
+            ingest_s      DOUBLE,
+            transform_s   DOUBLE,
+            forecast_s    DOUBLE,
+            status        VARCHAR,   -- success | failed
+            message       VARCHAR
+        )
+    """)
     return con
 
 
