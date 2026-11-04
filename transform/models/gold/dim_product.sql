@@ -53,10 +53,23 @@ with_unknown as (
     left join versions v using (stock_code)
 ),
 
+-- Most common sale quantity. mode() picks arbitrarily between equally common values, which made
+-- rebuilds differ (found by the fault-injection experiment), so ties go to the smaller quantity.
+pack_size as (
+    select stock_code, quantity as typical_pack_size
+    from (
+        select stock_code, quantity,
+               row_number() over (partition by stock_code order by count(*) desc, quantity) as rank
+        from product_lines
+        where not is_cancellation and quantity > 0
+        group by stock_code, quantity
+    )
+    where rank = 1
+),
+
 attributes as (
     select
         stock_code,
-        mode(quantity) filter (where not is_cancellation and quantity > 0)           as typical_pack_size,
         median(unit_price) filter (where not is_cancellation and unit_price > 0)      as median_unit_price,
         min(invoice_date) filter (where not is_cancellation)                         as first_sold_date,
         max(invoice_date) filter (where not is_cancellation)                         as last_sold_date
@@ -74,9 +87,10 @@ select
     coalesce(lead(w.first_day) over (partition by w.stock_code order by w.version_number),
              date '9999-12-31')                                                as valid_to,
     lead(w.first_day) over (partition by w.stock_code order by w.version_number) is null as is_current,
-    a.typical_pack_size,
+    ps.typical_pack_size,
     a.median_unit_price,
     a.first_sold_date,
     a.last_sold_date
 from with_unknown w
 left join attributes a using (stock_code)
+left join pack_size ps using (stock_code)

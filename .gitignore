@@ -2,6 +2,7 @@
 __pycache__/
 .ipynb_checkpoints/
 data/
+experiments/work/
 transform/target/
 transform/logs/
 logs/

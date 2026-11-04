@@ -1,11 +1,14 @@
 """Paths and constants shared by the pipeline."""
 
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+# Both can be overridden, so experiments run in their own folder without touching the main warehouse.
+DATA = Path(os.environ.get("THESIS_DATA_DIR", ROOT / "data"))
+SOURCE = Path(os.environ.get("THESIS_SOURCE_DIR", ROOT / "data" / "source"))
 
-SOURCE_INITIAL = DATA / "source" / "initial"   # year 1 history (bootstrap)
+SOURCE_INITIAL = SOURCE / "initial"            # year 1 history (bootstrap)
 LANDING = DATA / "landing"                     # new daily files arrive here
 BRONZE = DATA / "bronze" / "invoice_lines"     # raw Parquet, one folder per batch date
 ARCHIVE = DATA / "archive"                     # landing files after processing

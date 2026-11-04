@@ -1,0 +1,3 @@
+policy,scored days,model MAE (£),baseline MAE (£),better than baseline,model versions,replay time (s)
+never,304,"9,353","11,370",17.7%,1,95.2
+monthly,304,"9,328","11,370",18.0%,7,189.3

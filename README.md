@@ -74,6 +74,7 @@ is left in on purpose for the pipeline to handle.
 | New version of an already loaded day | `replaced`: the day's folder is swapped, never doubled |
 | Required column missing or renamed | `rejected`, file moved to quarantine |
 | File name is not a date | `rejected`, file moved to quarantine |
+| Not UTF-8, header only, a row with the wrong number of fields, or no final line break (truncated) | `rejected`, file moved to quarantine |
 | Rows written ≠ rows in file | `rejected` (nothing written) |
 
 Every decision is a row in `meta.ingestion_log`. Each bronze row carries lineage columns:
@@ -88,6 +89,7 @@ silver rows are deleted and the new ones inserted, so reprocessing a day replace
 | `silver.invoice_lines` | typed, valid, deduplicated lines with `line_type` and flags (`is_cancellation`, `is_missing_customer`, `is_free_item`, `is_extreme_quantity`, `is_late_arrival`) |
 | `silver.quarantine_lines` | rows that failed validation, with `dq_reason` and the original text values |
 | `silver.batch_quality` | per day: bronze rows, duplicates dropped, quarantined, silver rows and counts of each issue |
+| `silver.batch_anomalies` | warnings for whole batches compared with the previous 28: volume below 20% or above 5x of typical, missing customer IDs 40 points above typical, more than 10% duplicates (also a dbt warning test) |
 
 `line_type`: product, stock_correction, adjustment, postage, manual, discount, sample, fee, voucher,
 other (unknown code, reported by a warning test).
@@ -164,6 +166,25 @@ Opens at http://localhost:8501 with five tabs:
 
 DuckDB allows one writer or several readers at a time. The dashboard opens a read-only connection per
 query and closes it immediately; while a pipeline run is writing, it retries and then asks you to refresh.
+
+## Experiments (evaluation chapter)
+Each experiment runs the real pipeline code in its own folder (`experiments/work/…`, set through
+`THESIS_DATA_DIR`), so the main warehouse is never touched. Results are written to `experiments/results/`.
+
+| Script | Research question | Output |
+|---|---|---|
+| `experiments\fault_injection.py` | Does the pipeline catch file, row and batch faults? Are re-sends, backfills and full rebuilds idempotent? | `fault_injection.md` (+ `fault_injection_first_run.md`, the run that found two bugs) |
+| `experiments\scale.py` | How do ingest and transform time grow with daily volume x1 / x10 / x100? | `scale.md` |
+| `experiments\retraining.py` | Does monthly champion/challenger retraining beat never retraining? | `retraining.md` |
+
+```
+.venv\Scripts\python experiments\fault_injection.py
+```
+
+The first fault-injection run found two real defects, both fixed:
+a file truncated in the middle of its last row was loaded (row counting alone cannot see it; ingestion now
+checks field counts and the final line break), and `dim_product.typical_pack_size` changed between rebuilds
+because `mode()` breaks ties arbitrarily (now ties go to the smaller quantity).
 
 ## Notes
 * Each Prefect run currently starts a temporary local server (~20 s overhead). Running a

@@ -249,12 +249,12 @@ try:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Rows received (bronze)", f"{totals.bronze[0]:,.0f}")
         c2.metric("Duplicate lines dropped", f"{totals.dups[0]:,.0f}",
-                  f"{totals.dups[0] / totals.bronze[0]:.1%} of rows", delta_color="off")
+                  f"{totals.dups[0] / totals.bronze[0]:.1%} of rows", delta_color="off", delta_arrow="off")
         c3.metric("Rows quarantined", f"{totals.quarantined[0]:,.0f}")
         c4.metric("Files rejected or skipped",
                   f"{files.get('rejected', 0) + files.get('skipped_duplicate', 0):,}",
                   f"{files.get('rejected', 0)} rejected · {files.get('skipped_duplicate', 0)} re-sent",
-                  delta_color="off")
+                  delta_color="off", delta_arrow="off")
 
         quality = query("""
             SELECT batch_date AS date, duplicates_dropped, rows_quarantined,
@@ -282,6 +282,13 @@ try:
             table(query("""
                 SELECT finished_at AS time, file_name, batch_date, status, message
                 FROM meta.ingestion_log WHERE status <> 'loaded' ORDER BY finished_at DESC LIMIT 20
+            """))
+            st.subheader("Batch warnings")
+            st.caption("Each day compared with the 28 days before it: volume drop or spike, "
+                       "missing customer IDs, duplicates. The data is loaded; these need a person's review.")
+            table(query("""
+                SELECT batch_date, anomaly, round(value, 3) AS value, round(typical, 3) AS typical
+                FROM silver.batch_anomalies ORDER BY batch_date DESC LIMIT 20
             """))
         with right:
             st.subheader("Quarantined rows by reason")

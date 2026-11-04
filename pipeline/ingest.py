@@ -56,12 +56,33 @@ def file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+class MalformedFile(ValueError):
+    pass
+
+
 def read_header_and_count(path: Path) -> tuple[list[str], int]:
-    """Header and number of data rows (quoted line breaks handled correctly)."""
+    """Header and number of data rows (quoted line breaks handled correctly).
+
+    Raises MalformedFile if a row has a different number of fields than the header, or the file does
+    not end with a line break. Counting rows alone missed a file cut off in the middle of its last
+    row (found by the fault-injection experiment).
+    """
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        if f.tell() > 0:
+            f.seek(-1, 2)
+            if f.read(1) not in (b"\n", b"\r"):
+                raise MalformedFile("file does not end with a line break (possibly truncated)")
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader, [])
-        rows = sum(1 for row in reader if row)
+        rows = 0
+        for row in reader:
+            if not row:
+                continue
+            rows += 1
+            if len(row) != len(header):
+                raise MalformedFile(f"data row {rows} has {len(row)} fields, header has {len(header)}")
     return header, rows
 
 
@@ -119,10 +140,14 @@ def ingest_file(con: duckdb.DuckDBPyConnection, path: Path, run_id: str) -> Inge
         header, rows_in_file = read_header_and_count(path)
     except (UnicodeDecodeError, csv.Error) as e:
         return reject(f"file cannot be read as UTF-8 CSV: {e}", batch_date)
+    except MalformedFile as e:
+        return reject(f"malformed file: {e}", batch_date)
 
     missing = [c for c in config.REQUIRED_COLUMNS if c not in header]
     if missing:
         return reject(f"missing required columns: {missing}", batch_date)
+    if rows_in_file == 0:
+        return reject("file has a header but no data rows", batch_date)
     extra = [c for c in header if c not in config.REQUIRED_COLUMNS]
 
     # Write to a temporary folder first, check it, then swap it in.
@@ -132,16 +157,20 @@ def ingest_file(con: duckdb.DuckDBPyConnection, path: Path, run_id: str) -> Inge
     tmp.mkdir(parents=True)
     out_file = tmp / f"part-{digest[:8]}.parquet"
 
-    con.execute(f"""
-        COPY (
-            SELECT *,
-                   {_sql_text(path.name)}   AS _source_file,
-                   {_sql_text(digest)}      AS _file_hash,
-                   TIMESTAMP {_sql_text(started.isoformat(sep=' '))} AS _ingested_at,
-                   row_number() OVER ()     AS _row_number
-            FROM read_csv({_sql_text(path.as_posix())}, all_varchar = true, header = true)
-        ) TO {_sql_text(out_file.as_posix())} (FORMAT parquet)
-    """)
+    try:
+        con.execute(f"""
+            COPY (
+                SELECT *,
+                       {_sql_text(path.name)}   AS _source_file,
+                       {_sql_text(digest)}      AS _file_hash,
+                       TIMESTAMP {_sql_text(started.isoformat(sep=' '))} AS _ingested_at,
+                       row_number() OVER ()     AS _row_number
+                FROM read_csv({_sql_text(path.as_posix())}, all_varchar = true, header = true)
+            ) TO {_sql_text(out_file.as_posix())} (FORMAT parquet)
+        """)
+    except duckdb.Error as e:   # e.g. a truncated or malformed file
+        shutil.rmtree(tmp, ignore_errors=True)
+        return reject(f"file could not be parsed: {str(e).splitlines()[0][:200]}", batch_date)
     rows_loaded = con.execute(f"SELECT count(*) FROM read_parquet({_sql_text(out_file.as_posix())})").fetchone()[0]
 
     if rows_loaded != rows_in_file:
